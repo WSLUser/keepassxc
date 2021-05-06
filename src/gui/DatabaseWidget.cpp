@@ -142,13 +142,13 @@ DatabaseWidget::DatabaseWidget(QSharedPointer<Database> db, QWidget* parent)
 
     // Add a notification for when we are searching
     m_searchingLabel->setObjectName("SearchBanner");
-    m_searchingLabel->setText(tr("Searching..."));
+    m_searchingLabel->setText(tr("Searching…"));
     m_searchingLabel->setAlignment(Qt::AlignCenter);
     m_searchingLabel->setVisible(false);
 
 #ifdef WITH_XC_KEESHARE
     m_shareLabel->setObjectName("KeeShareBanner");
-    m_shareLabel->setText(tr("Shared group..."));
+    m_shareLabel->setText(tr("Shared group…"));
     m_shareLabel->setAlignment(Qt::AlignCenter);
     m_shareLabel->setVisible(false);
 #endif
@@ -213,13 +213,6 @@ DatabaseWidget::DatabaseWidget(QSharedPointer<Database> db, QWidget* parent)
 
     m_EntrySearcher = new EntrySearcher(false);
     m_searchLimitGroup = config()->get(Config::SearchLimitGroup).toBool();
-
-#ifdef WITH_XC_SSHAGENT
-    if (sshAgent()->isEnabled()) {
-        connect(this, SIGNAL(databaseLockRequested()), sshAgent(), SLOT(databaseLocked()));
-        connect(this, SIGNAL(databaseUnlocked()), sshAgent(), SLOT(databaseUnlocked()));
-    }
-#endif
 
 #ifdef WITH_XC_KEESHARE
     // We need to reregister the database to allow exports
@@ -437,6 +430,7 @@ void DatabaseWidget::showTotp()
     }
 
     auto totpDialog = new TotpDialog(this, currentEntry);
+    connect(this, &DatabaseWidget::databaseLockRequested, totpDialog, &TotpDialog::close);
     totpDialog->open();
 }
 
@@ -460,6 +454,7 @@ void DatabaseWidget::setupTotp()
 
     auto setupTotpDialog = new TotpSetupDialog(this, currentEntry);
     connect(setupTotpDialog, SIGNAL(totpUpdated()), SIGNAL(entrySelectionChanged()));
+    connect(this, &DatabaseWidget::databaseLockRequested, setupTotpDialog, &TotpSetupDialog::close);
     setupTotpDialog->open();
 }
 
@@ -479,20 +474,20 @@ void DatabaseWidget::deleteSelectedEntries()
     deleteEntries(std::move(selectedEntries));
 }
 
-void DatabaseWidget::deleteEntries(QList<Entry*> selectedEntries)
+void DatabaseWidget::deleteEntries(QList<Entry*> selectedEntries, bool confirm)
 {
     // Confirm entry removal before moving forward
     auto* recycleBin = m_db->metadata()->recycleBin();
     bool permanent = (recycleBin && recycleBin->findEntryByUuid(selectedEntries.first()->uuid()))
                      || !m_db->metadata()->recycleBinEnabled();
 
-    if (!confirmDeleteEntries(selectedEntries, permanent)) {
+    if (confirm && !confirmDeleteEntries(selectedEntries, permanent)) {
         return;
     }
 
     // Find references to selected entries and prompt for direction if necessary
     auto it = selectedEntries.begin();
-    while (it != selectedEntries.end()) {
+    while (confirm && it != selectedEntries.end()) {
         auto references = m_db->rootGroup()->referencesRecursive(*it);
         if (!references.isEmpty()) {
             // Ignore references that are selected for deletion
@@ -571,6 +566,8 @@ bool DatabaseWidget::confirmDeleteEntries(QList<Entry*> entries, bool permanent)
                                            MessageBox::Cancel);
 
         return answer == MessageBox::Delete;
+    } else if (config()->get(Config::Security_NoConfirmMoveEntryToRecycleBin).toBool()) {
+        return true;
     } else {
         QString prompt;
         if (entries.size() == 1) {
@@ -701,6 +698,7 @@ void DatabaseWidget::showTotpKeyQrCode()
     auto currentEntry = currentSelectedEntry();
     if (currentEntry) {
         auto totpDisplayDialog = new TotpExportSettingsDialog(this, currentEntry);
+        connect(this, &DatabaseWidget::databaseLockRequested, totpDisplayDialog, &TotpExportSettingsDialog::close);
         totpDisplayDialog->open();
     }
 }
@@ -761,44 +759,44 @@ void DatabaseWidget::removeFromAgent()
 }
 #endif
 
-void DatabaseWidget::performAutoType()
+void DatabaseWidget::performAutoType(const QString& sequence)
 {
     auto currentEntry = currentSelectedEntry();
     if (currentEntry) {
-        autoType()->performAutoType(currentEntry, window());
+        // TODO: Include name of previously active window in confirmation question
+        if (config()->get(Config::Security_AutoTypeAsk).toBool()
+            && MessageBox::question(
+                   this, tr("Confirm Auto-Type"), tr("Perform Auto-Type into the previously active window?"))
+                   != MessageBox::Yes) {
+            return;
+        }
+
+        if (sequence.isEmpty()) {
+            autoType()->performAutoType(currentEntry, window());
+        } else {
+            autoType()->performAutoTypeWithSequence(currentEntry, sequence, window());
+        }
     }
 }
 
 void DatabaseWidget::performAutoTypeUsername()
 {
-    auto currentEntry = currentSelectedEntry();
-    if (currentEntry) {
-        autoType()->performAutoTypeWithSequence(currentEntry, QStringLiteral("{USERNAME}"), window());
-    }
+    performAutoType(QStringLiteral("{USERNAME}"));
 }
 
 void DatabaseWidget::performAutoTypeUsernameEnter()
 {
-    auto currentEntry = currentSelectedEntry();
-    if (currentEntry) {
-        autoType()->performAutoTypeWithSequence(currentEntry, QStringLiteral("{USERNAME}{ENTER}"), window());
-    }
+    performAutoType(QStringLiteral("{USERNAME}{ENTER}"));
 }
 
 void DatabaseWidget::performAutoTypePassword()
 {
-    auto currentEntry = currentSelectedEntry();
-    if (currentEntry) {
-        autoType()->performAutoTypeWithSequence(currentEntry, QStringLiteral("{PASSWORD}"), window());
-    }
+    performAutoType(QStringLiteral("{PASSWORD}"));
 }
 
 void DatabaseWidget::performAutoTypePasswordEnter()
 {
-    auto currentEntry = currentSelectedEntry();
-    if (currentEntry) {
-        autoType()->performAutoTypeWithSequence(currentEntry, QStringLiteral("{PASSWORD}{ENTER}"), window());
-    }
+    performAutoType(QStringLiteral("{PASSWORD}{ENTER}"));
 }
 
 void DatabaseWidget::openUrl()
@@ -1081,8 +1079,14 @@ void DatabaseWidget::loadDatabase(bool accepted)
         replaceDatabase(openWidget->database());
         switchToMainView();
         processAutoOpen();
+        restoreGroupEntryFocus(m_groupBeforeLock, m_entryBeforeLock);
+        m_groupBeforeLock = QUuid();
+        m_entryBeforeLock = QUuid();
         m_saveAttempts = 0;
         emit databaseUnlocked();
+#ifdef WITH_XC_SSHAGENT
+        sshAgent()->databaseUnlocked(m_db);
+#endif
         if (config()->get(Config::MinimizeAfterUnlock).toBool()) {
             getMainWindow()->minimizeOrHide();
         }
@@ -1170,6 +1174,10 @@ void DatabaseWidget::unlockDatabase(bool accepted)
     processAutoOpen();
     emit databaseUnlocked();
 
+#ifdef WITH_XC_SSHAGENT
+    sshAgent()->databaseUnlocked(m_db);
+#endif
+
     if (senderDialog && senderDialog->intent() == DatabaseOpenDialog::Intent::AutoType) {
         QList<QSharedPointer<Database>> dbList;
         dbList.append(m_db);
@@ -1187,10 +1195,18 @@ void DatabaseWidget::entryActivationSignalReceived(Entry* entry, EntryModel::Mod
     // Implement 'copy-on-doubleclick' functionality for certain columns
     switch (column) {
     case EntryModel::Username:
-        setClipboardTextAndMinimize(entry->resolveMultiplePlaceholders(entry->username()));
+        if (config()->get(Config::Security_EnableCopyOnDoubleClick).toBool()) {
+            setClipboardTextAndMinimize(entry->resolveMultiplePlaceholders(entry->username()));
+        } else {
+            switchToEntryEdit(entry);
+        }
         break;
     case EntryModel::Password:
-        setClipboardTextAndMinimize(entry->resolveMultiplePlaceholders(entry->password()));
+        if (config()->get(Config::Security_EnableCopyOnDoubleClick).toBool()) {
+            setClipboardTextAndMinimize(entry->resolveMultiplePlaceholders(entry->password()));
+        } else {
+            switchToEntryEdit(entry);
+        }
         break;
     case EntryModel::Url:
         if (!entry->url().isEmpty()) {
@@ -1432,7 +1448,7 @@ void DatabaseWidget::endSearch()
     }
 
     m_searchingLabel->setVisible(false);
-    m_searchingLabel->setText(tr("Searching..."));
+    m_searchingLabel->setText(tr("Searching…"));
 
     m_lastSearchText.clear();
 
@@ -1528,6 +1544,11 @@ bool DatabaseWidget::lock()
 
     emit databaseLockRequested();
 
+    // ignore event if we are active and a modal dialog is still open (such as a message box or file dialog)
+    if (isVisible() && QApplication::activeModalWidget()) {
+        return false;
+    }
+
     clipboard()->clearCopiedText();
 
     if (isEditWidgetModified()) {
@@ -1585,6 +1606,10 @@ bool DatabaseWidget::lock()
     if (currentEntry) {
         m_entryBeforeLock = currentEntry->uuid();
     }
+
+#ifdef WITH_XC_SSHAGENT
+    sshAgent()->databaseLocked(m_db);
+#endif
 
     endSearch();
     clearAllWidgets();

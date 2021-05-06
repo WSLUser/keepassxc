@@ -41,14 +41,13 @@ namespace
             QPointer<const Group> group;
             QPointer<const Entry> entry;
             QSharedPointer<PasswordHealth> health;
-            bool knownBad = false;
+            bool exclude = false;
 
             Item(const Group* g, const Entry* e, QSharedPointer<PasswordHealth> h)
                 : group(g)
                 , entry(e)
                 , health(h)
-                , knownBad(e->customData()->contains(PasswordHealth::OPTION_KNOWN_BAD)
-                           && e->customData()->value(PasswordHealth::OPTION_KNOWN_BAD) == TRUE_STR)
+                , exclude(e->excludeFromReports())
             {
             }
 
@@ -121,7 +120,7 @@ Health::Health(QSharedPointer<Database> db)
 
             // Evaluate this entry
             const auto item = QSharedPointer<Item>(new Item(group, entry, m_checker.evaluate(entry)));
-            if (item->knownBad) {
+            if (item->exclude) {
                 m_anyKnownBad = true;
             }
 
@@ -140,7 +139,6 @@ Health::Health(QSharedPointer<Database> db)
 ReportsWidgetHealthcheck::ReportsWidgetHealthcheck(QWidget* parent)
     : QWidget(parent)
     , m_ui(new Ui::ReportsWidgetHealthcheck())
-    , m_errorIcon(icons()->icon("dialog-error"))
     , m_referencesModel(new QStandardItemModel(this))
     , m_modelProxy(new ReportSortProxyModel(this))
 {
@@ -150,8 +148,10 @@ ReportsWidgetHealthcheck::ReportsWidgetHealthcheck(QWidget* parent)
     m_modelProxy->setSortLocaleAware(true);
     m_ui->healthcheckTableView->setModel(m_modelProxy.data());
     m_ui->healthcheckTableView->setSelectionMode(QAbstractItemView::NoSelection);
-    m_ui->healthcheckTableView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_ui->healthcheckTableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_ui->healthcheckTableView->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_ui->healthcheckTableView->setSortingEnabled(true);
+    m_ui->healthcheckTableView->setWordWrap(true);
 
     connect(m_ui->healthcheckTableView, SIGNAL(customContextMenuRequested(QPoint)), SLOT(customMenuRequested(QPoint)));
     connect(m_ui->healthcheckTableView, SIGNAL(doubleClicked(QModelIndex)), SLOT(emitEntryActivated(QModelIndex)));
@@ -235,7 +235,7 @@ void ReportsWidgetHealthcheck::loadSettings(QSharedPointer<Database> db)
     m_rowToEntry.clear();
 
     auto row = QList<QStandardItem*>();
-    row << new QStandardItem(tr("Please wait, health data is being calculated..."));
+    row << new QStandardItem(tr("Please wait, health data is being calculated…"));
     m_referencesModel->appendRow(row);
 }
 
@@ -258,18 +258,18 @@ void ReportsWidgetHealthcheck::calculateHealth()
     const QScopedPointer<Health> health(AsyncTask::runAndWaitForFuture([this] { return new Health(m_db); }));
 
     // Display entries that are marked as "known bad"?
-    const auto showKnownBad = m_ui->showKnownBadCheckBox->isChecked();
+    const auto showExcluded = m_ui->showKnownBadCheckBox->isChecked();
 
     // Display the entries
     m_rowToEntry.clear();
     for (const auto& item : health->items()) {
-        if (item->knownBad && !showKnownBad) {
+        if (item->exclude && !showExcluded) {
             // Exclude this entry from the report
             continue;
         }
 
         // Show the entry in the report
-        addHealthRow(item->health, item->group, item->entry, item->knownBad);
+        addHealthRow(item->health, item->group, item->entry, item->exclude);
     }
 
     // Set the table header
@@ -281,7 +281,8 @@ void ReportsWidgetHealthcheck::calculateHealth()
         m_ui->healthcheckTableView->sortByColumn(0, Qt::AscendingOrder);
     }
 
-    m_ui->healthcheckTableView->resizeRowsToContents();
+    m_ui->healthcheckTableView->resizeColumnsToContents();
+    m_ui->healthcheckTableView->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
 
     // Show the "show known bad entries" checkbox if there's any known
     // bad entry in the database.
@@ -325,17 +326,21 @@ void ReportsWidgetHealthcheck::customMenuRequested(QPoint pos)
     const auto menu = new QMenu(this);
 
     // Create the "edit entry" menu item
-    const auto edit = new QAction(icons()->icon("entry-edit"), tr("Edit Entry..."), this);
+    const auto edit = new QAction(icons()->icon("entry-edit"), tr("Edit Entry…"), this);
     menu->addAction(edit);
     connect(edit, SIGNAL(triggered()), SLOT(editFromContextmenu()));
 
     // Create the "exclude from reports" menu item
-    const auto knownbad = new QAction(icons()->icon("reports-exclude"), tr("Exclude from reports"), this);
-    knownbad->setCheckable(true);
-    knownbad->setChecked(m_contextmenuEntry->customData()->contains(PasswordHealth::OPTION_KNOWN_BAD)
-                         && m_contextmenuEntry->customData()->value(PasswordHealth::OPTION_KNOWN_BAD) == TRUE_STR);
-    menu->addAction(knownbad);
-    connect(knownbad, SIGNAL(toggled(bool)), SLOT(toggleKnownBad(bool)));
+    const auto exclude = new QAction(icons()->icon("reports-exclude"), tr("Exclude from reports"), this);
+    exclude->setCheckable(true);
+    exclude->setChecked(m_contextmenuEntry->excludeFromReports());
+    menu->addAction(exclude);
+    connect(exclude, &QAction::toggled, exclude, [this](bool state) {
+        if (m_contextmenuEntry) {
+            m_contextmenuEntry->setExcludeFromReports(state);
+            calculateHealth();
+        }
+    });
 
     // Show the context menu
     menu->popup(m_ui->healthcheckTableView->viewport()->mapToGlobal(pos));
@@ -346,17 +351,6 @@ void ReportsWidgetHealthcheck::editFromContextmenu()
     if (m_contextmenuEntry) {
         emit entryActivated(m_contextmenuEntry);
     }
-}
-
-void ReportsWidgetHealthcheck::toggleKnownBad(bool isKnownBad)
-{
-    if (!m_contextmenuEntry) {
-        return;
-    }
-
-    m_contextmenuEntry->customData()->set(PasswordHealth::OPTION_KNOWN_BAD, isKnownBad ? TRUE_STR : FALSE_STR);
-
-    calculateHealth();
 }
 
 void ReportsWidgetHealthcheck::saveSettings()

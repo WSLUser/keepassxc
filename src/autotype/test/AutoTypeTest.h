@@ -37,9 +37,6 @@ public:
     QStringList windowTitles() override;
     WId activeWindow() override;
     QString activeWindowTitle() override;
-    bool registerGlobalShortcut(Qt::Key key, Qt::KeyboardModifiers modifiers) override;
-    void unregisterGlobalShortcut(Qt::Key key, Qt::KeyboardModifiers modifiers) override;
-    int platformEventFilter(void* event) override;
     bool raiseWindow(WId window) override;
     AutoTypeExecutor* createExecutor() override;
 
@@ -48,22 +45,17 @@ public:
     bool raiseOwnWindow() override;
 #endif
 
-    void triggerGlobalAutoType() override;
     void setActiveWindowTitle(const QString& title) override;
 
     QString actionChars() override;
     int actionCount() override;
     void clearActions() override;
 
-    void addActionChar(AutoTypeChar* action);
-    void addActionKey(AutoTypeKey* action);
-
-signals:
-    void globalShortcutTriggered();
+    void addAction(const AutoTypeKey* action);
 
 private:
     QString m_activeWindowTitle;
-    QList<AutoTypeAction*> m_actionList;
+    int m_actionCount = 0;
     QString m_actionChars;
 };
 
@@ -72,8 +64,9 @@ class AutoTypeExecutorTest : public AutoTypeExecutor
 public:
     explicit AutoTypeExecutorTest(AutoTypePlatformTest* platform);
 
-    void execChar(AutoTypeChar* action) override;
-    void execKey(AutoTypeKey* action) override;
+    AutoTypeAction::Result execBegin(const AutoTypeBegin* action) override;
+    AutoTypeAction::Result execType(const AutoTypeKey* action) override;
+    AutoTypeAction::Result execClearField(const AutoTypeClearField* action) override;
 
 private:
     AutoTypePlatformTest* const m_platform;

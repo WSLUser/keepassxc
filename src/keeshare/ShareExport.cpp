@@ -23,6 +23,9 @@
 #include "keeshare/Signature.h"
 #include "keys/PasswordKey.h"
 
+#include <QBuffer>
+#include <QTextStream>
+
 #if defined(WITH_XC_KEESHARE_SECURE)
 #include <quazip.h>
 #include <quazipfile.h>
@@ -147,9 +150,8 @@ namespace
             }
             QTextStream stream(&file);
             KeeShareSettings::Sign sign;
-            auto sshKey = own.key.sshKey();
-            sshKey.openKey(QString());
-            sign.signature = Signature::create(bytes, sshKey);
+            // TODO: check for false return
+            Signature::create(bytes, own.key.key, sign.signature);
             sign.certificate = own.certificate;
             stream << KeeShareSettings::Sign::serialize(sign);
             stream.flush();
@@ -224,9 +226,5 @@ ShareObserver::Result ShareExport::intoContainer(const QString& resolvedPath,
     if (KeeShare::isContainerType(info, KeeShare::signedContainerFileType())) {
         return intoSignedContainer(resolvedPath, reference, targetDb.data());
     }
-    if (KeeShare::isContainerType(info, KeeShare::unsignedContainerFileType())) {
-        return intoUnsignedContainer(resolvedPath, reference, targetDb.data());
-    }
-    Q_ASSERT(false);
-    return {reference.path, ShareObserver::Result::Error, tr("Unexpected export error occurred")};
+    return intoUnsignedContainer(resolvedPath, reference, targetDb.data());
 }

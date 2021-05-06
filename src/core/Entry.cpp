@@ -17,13 +17,12 @@
  */
 #include "Entry.h"
 
-#include "config-keepassx.h"
-
-#include "core/Clock.h"
+#include "core/Config.h"
 #include "core/Database.h"
 #include "core/DatabaseIcons.h"
 #include "core/Group.h"
 #include "core/Metadata.h"
+#include "core/PasswordHealth.h"
 #include "core/Tools.h"
 #include "totp/totp.h"
 
@@ -35,8 +34,6 @@ const int Entry::DefaultIconNumber = 0;
 const int Entry::ResolveMaximumDepth = 10;
 const QString Entry::AutoTypeSequenceUsername = "{USERNAME}{ENTER}";
 const QString Entry::AutoTypeSequencePassword = "{PASSWORD}{ENTER}";
-
-Entry::CloneFlags Entry::DefaultCloneFlags = Entry::CloneNewUuid | Entry::CloneResetTimeInfo;
 
 Entry::Entry()
     : m_attributes(new EntryAttributes(this))
@@ -246,6 +243,25 @@ QString Entry::defaultAutoTypeSequence() const
     return m_data.defaultAutoTypeSequence;
 }
 
+const QSharedPointer<PasswordHealth>& Entry::passwordHealth()
+{
+    if (!m_data.passwordHealth) {
+        m_data.passwordHealth.reset(new PasswordHealth(resolvePlaceholder(password())));
+    }
+    return m_data.passwordHealth;
+}
+
+bool Entry::excludeFromReports() const
+{
+    return customData()->contains(CustomData::ExcludeFromReports)
+           && customData()->value(CustomData::ExcludeFromReports) == TRUE_STR;
+}
+
+void Entry::setExcludeFromReports(bool state)
+{
+    customData()->set(CustomData::ExcludeFromReports, state ? TRUE_STR : FALSE_STR);
+}
+
 /**
  * Determine the effective sequence that will be injected
  * This function return an empty string if a parent group has autotype disabled or if the entry has no parent
@@ -280,6 +296,75 @@ QString Entry::effectiveAutoTypeSequence() const
     }
 
     return sequence;
+}
+
+/**
+ * Retrive the autotype sequences matches for a given windowTitle
+ * This returns a list with priority ordering. If you don't want duplicates call .toSet() on it.
+ */
+QList<QString> Entry::autoTypeSequences(const QString& windowTitle) const
+{
+    // If no window just return the effective sequence
+    if (windowTitle.isEmpty()) {
+        return {effectiveAutoTypeSequence()};
+    }
+
+    // Define helper functions to match window titles
+    auto windowMatches = [&](const QString& pattern) {
+        // Regex searching
+        if (pattern.startsWith("//") && pattern.endsWith("//") && pattern.size() >= 4) {
+            QRegExp regExp(pattern.mid(2, pattern.size() - 4), Qt::CaseInsensitive, QRegExp::RegExp2);
+            return (regExp.indexIn(windowTitle) != -1);
+        }
+
+        // Wildcard searching
+        auto regex = Tools::convertToRegex(pattern, true, false, false);
+        return windowTitle.contains(regex);
+    };
+
+    auto windowMatchesTitle = [&](const QString& entryTitle) {
+        return !entryTitle.isEmpty() && windowTitle.contains(entryTitle, Qt::CaseInsensitive);
+    };
+
+    auto windowMatchesUrl = [&](const QString& entryUrl) {
+        if (!entryUrl.isEmpty() && windowTitle.contains(entryUrl, Qt::CaseInsensitive)) {
+            return true;
+        }
+
+        QUrl url(entryUrl);
+        if (url.isValid() && !url.host().isEmpty()) {
+            return windowTitle.contains(url.host(), Qt::CaseInsensitive);
+        }
+
+        return false;
+    };
+
+    QList<QString> sequenceList;
+
+    // Add window association matches
+    const auto assocList = autoTypeAssociations()->getAll();
+    for (const auto& assoc : assocList) {
+        auto window = resolveMultiplePlaceholders(assoc.window);
+        if (windowMatches(window)) {
+            if (!assoc.sequence.isEmpty()) {
+                sequenceList << assoc.sequence;
+            } else {
+                sequenceList << effectiveAutoTypeSequence();
+            }
+        }
+    }
+
+    // Try to match window title
+    if (config()->get(Config::AutoTypeEntryTitleMatch).toBool() && windowMatchesTitle(resolvePlaceholder(title()))) {
+        sequenceList << effectiveAutoTypeSequence();
+    }
+
+    // Try to match url in window title
+    if (config()->get(Config::AutoTypeEntryURLMatch).toBool() && windowMatchesUrl(resolvePlaceholder(url()))) {
+        sequenceList << effectiveAutoTypeSequence();
+    }
+
+    return sequenceList;
 }
 
 AutoTypeAssociations* Entry::autoTypeAssociations()
@@ -605,6 +690,8 @@ void Entry::setUsername(const QString& username)
 
 void Entry::setPassword(const QString& password)
 {
+    // Reset Password Health
+    m_data.passwordHealth.reset();
     m_attributes->set(EntryAttributes::PasswordKey, password, m_attributes->isProtected(EntryAttributes::PasswordKey));
 }
 

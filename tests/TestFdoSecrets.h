@@ -25,13 +25,10 @@ class TestFdoSecrets : public QObject
     Q_OBJECT
 
 private slots:
-    void initTestCase();
-    void cleanupTestCase();
-
-    void testGcryptMPI();
     void testDhIetf1024Sha256Aes128CbcPkcs7();
     void testCrazyAttributeKey();
     void testSpecialCharsInAttributeValue();
+    void testDBusPathParse();
 };
 
 #endif // KEEPASSXC_TESTFDOSECRETS_H

@@ -19,6 +19,7 @@
 #include <QCommandLineParser>
 #include <QFile>
 #include <QTextStream>
+#include <QWindow>
 
 #include "cli/Utils.h"
 #include "config-keepassx.h"
@@ -28,6 +29,7 @@
 #include "gui/Application.h"
 #include "gui/MainWindow.h"
 #include "gui/MessageBox.h"
+#include "gui/osutils/OSUtils.h"
 
 #if defined(WITH_ASAN) && defined(WITH_LSAN)
 #include <sanitizer/lsan_interface.h>
@@ -54,6 +56,12 @@ int main(int argc, char** argv)
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0) && defined(Q_OS_WIN)
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 #endif
+    Application app(argc, argv);
+    // don't set organizationName as that changes the return value of
+    // QStandardPaths::writableLocation(QDesktopServices::DataLocation)
+    Application::setApplicationName("KeePassXC");
+    Application::setApplicationVersion(KEEPASSXC_VERSION);
+    app.setProperty("KPXC_QUALIFIED_APPNAME", "org.keepassxc.KeePassXC");
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QObject::tr("KeePassXC - cross-platform password manager"));
@@ -65,6 +73,8 @@ int main(int argc, char** argv)
         "localconfig", QObject::tr("path to a custom local config file"), "localconfig");
     QCommandLineOption keyfileOption("keyfile", QObject::tr("key file of the database"), "keyfile");
     QCommandLineOption pwstdinOption("pw-stdin", QObject::tr("read password of the database from stdin"));
+    QCommandLineOption allowScreenCaptureOption("allow-screencapture",
+                                                QObject::tr("allow app screen recordering and screenshots"));
 
     QCommandLineOption helpOption = parser.addHelpOption();
     QCommandLineOption versionOption = parser.addVersionOption();
@@ -75,17 +85,22 @@ int main(int argc, char** argv)
     parser.addOption(pwstdinOption);
     parser.addOption(debugInfoOption);
 
-    Application app(argc, argv);
-    // don't set organizationName as that changes the return value of
-    // QStandardPaths::writableLocation(QDesktopServices::DataLocation)
-    Application::setApplicationName("KeePassXC");
-    Application::setApplicationVersion(KEEPASSXC_VERSION);
-    app.setProperty("KPXC_QUALIFIED_APPNAME", "org.keepassxc.KeePassXC");
+    if (osUtils->canPreventScreenCapture()) {
+        parser.addOption(allowScreenCaptureOption);
+    }
 
     parser.process(app);
 
     // Exit early if we're only showing the help / version
     if (parser.isSet(versionOption) || parser.isSet(helpOption)) {
+        return EXIT_SUCCESS;
+    }
+
+    // Show debug information and then exit
+    if (parser.isSet(debugInfoOption)) {
+        QTextStream out(stdout, QIODevice::WriteOnly);
+        QString debugInfo = Tools::debugInfo().append("\n").append(Crypto::debugInfo());
+        out << debugInfo << endl;
         return EXIT_SUCCESS;
     }
 
@@ -104,6 +119,14 @@ int main(int argc, char** argv)
         return EXIT_SUCCESS;
     }
 
+    if (!Crypto::init()) {
+        QString error = QObject::tr("Fatal error while testing the cryptographic functions.");
+        error.append("\n");
+        error.append(Crypto::errorString());
+        MessageBox::critical(nullptr, QObject::tr("KeePassXC - Error"), error);
+        return EXIT_FAILURE;
+    }
+
     // Apply the configured theme before creating any GUI elements
     app.applyTheme();
 
@@ -113,24 +136,23 @@ int main(int argc, char** argv)
 
     Application::bootstrap();
 
-    if (!Crypto::init()) {
-        QString error = QObject::tr("Fatal error while testing the cryptographic functions.");
-        error.append("\n");
-        error.append(Crypto::errorString());
-        MessageBox::critical(nullptr, QObject::tr("KeePassXC - Error"), error);
-        return EXIT_FAILURE;
-    }
-
-    // Displaying the debugging informations must be done after Crypto::init,
-    // to make sure we know which libgcrypt version is used.
-    if (parser.isSet(debugInfoOption)) {
-        QTextStream out(stdout, QIODevice::WriteOnly);
-        QString debugInfo = Tools::debugInfo().append("\n").append(Crypto::debugInfo());
-        out << debugInfo << endl;
-        return EXIT_SUCCESS;
-    }
-
     MainWindow mainWindow;
+
+#ifndef QT_DEBUG
+    // Disable screen capture if capable and not explicitly allowed
+    if (osUtils->canPreventScreenCapture() && !parser.isSet(allowScreenCaptureOption)) {
+        // This ensures any top-level windows (Main Window, Modal Dialogs, etc.) are excluded from screenshots
+        QObject::connect(&app, &QGuiApplication::focusWindowChanged, &mainWindow, [&](QWindow* window) {
+            if (window) {
+                if (!osUtils->setPreventScreenCapture(window, true)) {
+                    mainWindow.displayGlobalMessage(
+                        QObject::tr("Warning: Failed to prevent screenshots on a top level window!"),
+                        MessageWidget::Error);
+                }
+            }
+        });
+    }
+#endif
 
     const bool pwstdin = parser.isSet(pwstdinOption);
     for (const QString& filename : fileNames) {

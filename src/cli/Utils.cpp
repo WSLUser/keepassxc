@@ -17,8 +17,13 @@
 
 #include "Utils.h"
 
+#include "core/Database.h"
+#include "core/EntryAttributes.h"
+#include "keys/CompositeKey.h"
+#include "keys/FileKey.h"
+#include "keys/PasswordKey.h"
 #ifdef WITH_XC_YUBIKEY
-#include "keys/YkChallengeResponseKeyCLI.h"
+#include "keys/YkChallengeResponseKey.h"
 #endif
 
 #ifdef Q_OS_WIN
@@ -30,7 +35,7 @@
 
 #include <QFileInfo>
 #include <QProcess>
-#include <QScopedPointer>
+#include <QTextStream>
 
 namespace Utils
 {
@@ -91,7 +96,7 @@ namespace Utils
     }
 
     QSharedPointer<Database> unlockDatabase(const QString& databaseFilename,
-                                            const bool isPasswordProtected,
+                                            bool isPasswordProtected,
                                             const QString& keyFilename,
                                             const QString& yubiKeySlot,
                                             bool quiet)
@@ -132,9 +137,9 @@ namespace Utils
                 return {};
             }
 
-            if (fileKey->type() != FileKey::Hashed) {
-                err << QObject::tr("WARNING: You are using a legacy key file format which may become\n"
-                                   "unsupported in the future.\n\n"
+            if (fileKey->type() != FileKey::KeePass2XMLv2 && fileKey->type() != FileKey::Hashed) {
+                err << QObject::tr("WARNING: You are using an old key file format which KeePassXC may\n"
+                                   "stop supporting in the future.\n\n"
                                    "Please consider generating a new key file.")
                     << endl;
             }
@@ -165,9 +170,14 @@ namespace Utils
                 }
             }
 
-            auto key = QSharedPointer<YkChallengeResponseKeyCLI>(new YkChallengeResponseKeyCLI(
-                {serial, slot}, QObject::tr("Please touch the button on your YubiKey to continue…"), err));
+            auto conn = QObject::connect(YubiKey::instance(), &YubiKey::userInteractionRequest, [&] {
+                err << QObject::tr("Please touch the button on your YubiKey to continue…") << "\n\n" << flush;
+            });
+
+            auto key = QSharedPointer<YkChallengeResponseKey>(new YkChallengeResponseKey({serial, slot}));
             compositeKey->addChallengeResponseKey(key);
+
+            QObject::disconnect(conn);
         }
 #else
         Q_UNUSED(yubiKeySlot);
@@ -284,7 +294,7 @@ namespace Utils
 
         QStringList failedProgramNames;
 
-        for (auto prog : clipPrograms) {
+        for (const auto& prog : clipPrograms) {
             QScopedPointer<QProcess> clipProcess(new QProcess(nullptr));
 
             // Skip empty parts, otherwise the program may clip the empty string
@@ -298,7 +308,14 @@ namespace Utils
                 continue;
             }
 
-            if (clipProcess->write(text.toLatin1()) == -1) {
+#ifdef Q_OS_WIN
+            // Windows clip command only understands Unicode written as UTF-16
+            auto data = QByteArray::fromRawData(reinterpret_cast<const char*>(text.utf16()), text.size() * 2);
+            if (clipProcess->write(data) == -1) {
+#else
+            // Other platforms understand UTF-8
+            if (clipProcess->write(text.toUtf8()) == -1) {
+#endif
                 qDebug("Unable to write to process : %s", qPrintable(clipProcess->errorString()));
             }
             clipProcess->waitForBytesWritten();

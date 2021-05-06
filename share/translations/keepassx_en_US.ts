@@ -2454,7 +2454,7 @@ Disable safe saves and try again?</translation>
     <name>EditEntryWidgetBrowser</name>
     <message>
         <source>These settings affect to the entry&apos;s behaviour with the browser extension.</source>
-        <translation>These settings affect to the entry&apos;s behavior with the browser extension.</translation>
+        <translation>These settings affect the browser extension’s behavior with regard to this database entry.</translation>
     </message>
     <message>
         <source>General</source>
@@ -2470,7 +2470,7 @@ Disable safe saves and try again?</translation>
     </message>
     <message>
         <source>Additional URL&apos;s</source>
-        <translation>Additional URL&apos;s</translation>
+        <translation>Additional URLs</translation>
     </message>
     <message>
         <source>Add</source>
@@ -7477,7 +7477,7 @@ Kernel: %3 %4</translation>
     </message>
     <message>
         <source>Do you want to trust %1 with the fingerprint of %2 from %3?</source>
-        <translation>Do you want to trust %1 with the fingerprint of %2 from %3? {1 ?} {2 ?}</translation>
+        <translation>Do you want to trust %1 with the fingerprint of %2 from %3?</translation>
     </message>
     <message>
         <source>Not this time</source>

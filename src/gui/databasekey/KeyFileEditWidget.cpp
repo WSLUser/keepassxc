@@ -16,13 +16,13 @@
  */
 
 #include "KeyFileEditWidget.h"
+#include "ui_KeyComponentWidget.h"
 #include "ui_KeyFileEditWidget.h"
-#include <gui/dbsettings/DatabaseSettingsWidget.h>
 
 #include "gui/FileDialog.h"
 #include "gui/MainWindow.h"
 #include "gui/MessageBox.h"
-#include "keys/CompositeKey.h"
+#include "gui/dbsettings/DatabaseSettingsWidget.h"
 #include "keys/FileKey.h"
 
 KeyFileEditWidget::KeyFileEditWidget(DatabaseSettingsWidget* parent)
@@ -30,9 +30,7 @@ KeyFileEditWidget::KeyFileEditWidget(DatabaseSettingsWidget* parent)
     , m_compUi(new Ui::KeyFileEditWidget())
     , m_parent(parent)
 {
-    setComponentName(tr("Key File"));
-    setComponentDescription(tr("<p>You can add a key file containing random bytes for additional security.</p>"
-                               "<p>You must keep it secret and never lose it or you will be locked out!</p>"));
+    initComponent();
 }
 
 KeyFileEditWidget::~KeyFileEditWidget()
@@ -42,17 +40,17 @@ KeyFileEditWidget::~KeyFileEditWidget()
 bool KeyFileEditWidget::addToCompositeKey(QSharedPointer<CompositeKey> key)
 {
     auto fileKey = QSharedPointer<FileKey>::create();
-    QString fileKeyName = m_compUi->keyFileCombo->currentText();
+    QString fileKeyName = m_compUi->keyFileLineEdit->text();
     if (!fileKey->load(fileKeyName, nullptr)) {
         return false;
     }
 
-    if (fileKey->type() != FileKey::Hashed) {
+    if (fileKey->type() != FileKey::KeePass2XMLv2 && fileKey->type() != FileKey::Hashed) {
         QMessageBox::warning(getMainWindow(),
-                             tr("Legacy key file format"),
-                             tr("You are using a legacy key file format which may become\n"
-                                "unsupported in the future.\n\n"
-                                "Generate a new key file in the database security settings."),
+                             tr("Old key file format"),
+                             tr("You selected a key file in an old format which KeePassXC<br>"
+                                "may stop supporting in the future.<br><br>"
+                                "Please consider generating a new key file instead."),
                              QMessageBox::Ok);
     }
 
@@ -64,7 +62,7 @@ bool KeyFileEditWidget::validate(QString& errorMessage) const
 {
     FileKey fileKey;
     QString fileKeyError;
-    QString fileKeyName = m_compUi->keyFileCombo->currentText();
+    QString fileKeyName = m_compUi->keyFileLineEdit->text();
     if (!fileKey.load(fileKeyName, &fileKeyError)) {
         errorMessage = tr("Error loading the key file '%1'\nMessage: %2").arg(fileKeyName, fileKeyError);
         return false;
@@ -87,7 +85,21 @@ void KeyFileEditWidget::initComponentEditWidget(QWidget* widget)
 {
     Q_UNUSED(widget);
     Q_ASSERT(m_compEditWidget);
-    m_compUi->keyFileCombo->setFocus();
+    m_compUi->keyFileLineEdit->setFocus();
+}
+
+void KeyFileEditWidget::initComponent()
+{
+    // These need to be set in total for each credential type for translation purposes
+    m_ui->groupBox->setTitle(tr("Key File"));
+    m_ui->addButton->setText(tr("Add Key File"));
+    m_ui->changeButton->setText(tr("Change Key File"));
+    m_ui->removeButton->setText(tr("Remove Key File"));
+    m_ui->changeOrRemoveLabel->setText(tr("Key File set, click to change or remove"));
+
+    m_ui->componentDescription->setText(
+        tr("<p>You can add a key file containing random bytes for additional security.</p>"
+           "<p>You must keep it secret and never lose it or you will be locked out.</p>"));
 }
 
 void KeyFileEditWidget::createKeyFile()
@@ -96,8 +108,8 @@ void KeyFileEditWidget::createKeyFile()
     if (!m_compEditWidget) {
         return;
     }
-    QString filters = QString("%1 (*.key);;%2 (*)").arg(tr("Key files"), tr("All files"));
-    QString fileName = fileDialog()->getSaveFileName(this, tr("Create Key File..."), QString(), filters);
+    QString filters = QString("%1 (*.keyx; *.key);;%2 (*)").arg(tr("Key files"), tr("All files"));
+    QString fileName = fileDialog()->getSaveFileName(this, tr("Create Key File…"), QString(), filters);
 
     if (!fileName.isEmpty()) {
         QString errorMsg;
@@ -108,7 +120,7 @@ void KeyFileEditWidget::createKeyFile()
                                  tr("Unable to create key file: %1").arg(errorMsg),
                                  QMessageBox::Button::Ok);
         } else {
-            m_compUi->keyFileCombo->setEditText(fileName);
+            m_compUi->keyFileLineEdit->setText(fileName);
         }
     }
 }
@@ -119,7 +131,7 @@ void KeyFileEditWidget::browseKeyFile()
     if (!m_compEditWidget) {
         return;
     }
-    QString filters = QString("%1 (*.key);;%2 (*)").arg(tr("Key files"), tr("All files"));
+    QString filters = QString("%1 (*.keyx; *.key);;%2 (*)").arg(tr("Key files"), tr("All files"));
     QString fileName = fileDialog()->getOpenFileName(this, tr("Select a key file"), QString(), filters);
 
     if (QFileInfo(fileName).canonicalFilePath() == m_parent->getDatabase()->canonicalFilePath()) {
@@ -143,6 +155,6 @@ void KeyFileEditWidget::browseKeyFile()
     }
 
     if (!fileName.isEmpty()) {
-        m_compUi->keyFileCombo->setEditText(fileName);
+        m_compUi->keyFileLineEdit->setText(fileName);
     }
 }

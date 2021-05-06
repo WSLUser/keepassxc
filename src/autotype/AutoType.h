@@ -24,7 +24,7 @@
 #include <QStringList>
 #include <QWidget>
 
-#include "core/AutoTypeMatch.h"
+#include "autotype/AutoTypeMatch.h"
 
 class AutoTypeAction;
 class AutoTypeExecutor;
@@ -39,16 +39,12 @@ class AutoType : public QObject
 
 public:
     QStringList windowTitles();
-    bool registerGlobalShortcut(Qt::Key key, Qt::KeyboardModifiers modifiers);
+    bool registerGlobalShortcut(Qt::Key key, Qt::KeyboardModifiers modifiers, QString* error = nullptr);
     void unregisterGlobalShortcut();
-    int callEventFilter(void* event);
-    static bool checkSyntax(const QString& string);
-    static bool checkHighRepetition(const QString& string);
-    static bool checkSlowKeypress(const QString& string);
-    static bool checkHighDelay(const QString& string);
-    static bool verifyAutoTypeSyntax(const QString& sequence);
     void performAutoType(const Entry* entry, QWidget* hideWindow = nullptr);
     void performAutoTypeWithSequence(const Entry* entry, const QString& sequence, QWidget* hideWindow = nullptr);
+
+    static bool verifyAutoTypeSyntax(const QString& sequence, const Entry* entry, QString& error);
 
     inline bool isAvailable()
     {
@@ -69,8 +65,6 @@ signals:
 
 private slots:
     void startGlobalAutoType();
-    void performAutoTypeFromGlobal(AutoTypeMatch match);
-    void autoTypeRejectedFromGlobal();
     void unloadPlugin();
 
 private:
@@ -88,19 +82,14 @@ private:
                                 QWidget* hideWindow = nullptr,
                                 const QString& customSequence = QString(),
                                 WId window = 0);
-    bool parseActions(const QString& sequence, const Entry* entry, QList<AutoTypeAction*>& actions);
-    QList<AutoTypeAction*> createActionFromTemplate(const QString& tmpl, const Entry* entry);
-    QList<QString> autoTypeSequences(const Entry* entry, const QString& windowTitle = QString());
-    bool windowMatchesTitle(const QString& windowTitle, const QString& resolvedTitle);
-    bool windowMatchesUrl(const QString& windowTitle, const QString& resolvedUrl);
-    bool windowMatches(const QString& windowTitle, const QString& windowPattern);
     void restoreWindowState();
+    void resetAutoTypeState();
+
+    static QList<QSharedPointer<AutoTypeAction>>
+    parseSequence(const QString& entrySequence, const Entry* entry, QString& error, bool syntaxOnly = false);
 
     QMutex m_inAutoType;
     QMutex m_inGlobalAutoTypeDialog;
-    int m_autoTypeDelay;
-    Qt::Key m_currentGlobalKey;
-    Qt::KeyboardModifiers m_currentGlobalModifiers;
     QPluginLoader* m_pluginLoader;
     AutoTypePlatformInterface* m_plugin;
     AutoTypeExecutor* m_executor;

@@ -19,9 +19,11 @@
 #ifndef KEEPASSXC_MACUTILS_H
 #define KEEPASSXC_MACUTILS_H
 
-#include "gui/osutils/OSUtilsBase.h"
 #include "AppKit.h"
+#include "gui/osutils/OSUtilsBase.h"
+#include <Carbon/Carbon.h>
 
+#include <QColor>
 #include <QPointer>
 #include <QScopedPointer>
 #include <qwindowdefs.h>
@@ -34,6 +36,7 @@ public:
     static MacUtils* instance();
 
     bool isDarkMode() const override;
+    bool isStatusBarDark() const override;
     bool isLaunchAtStartupEnabled() const override;
     void setLaunchAtStartup(bool enable) override;
     bool isCapslockEnabled() override;
@@ -48,6 +51,20 @@ public:
     bool enableScreenRecording();
     void toggleForegroundApp(bool foreground);
 
+    void registerNativeEventFilter() override;
+
+    bool registerGlobalShortcut(const QString& name,
+                                Qt::Key key,
+                                Qt::KeyboardModifiers modifiers,
+                                QString* error = nullptr) override;
+    bool unregisterGlobalShortcut(const QString& name) override;
+
+    uint16 qtToNativeKeyCode(Qt::Key key);
+    CGEventFlags qtToNativeModifiers(Qt::KeyboardModifiers modifiers, bool native);
+
+    bool canPreventScreenCapture() const override;
+    bool setPreventScreenCapture(QWindow* window, bool prevent) const override;
+
 signals:
     void lockDatabases();
 
@@ -57,9 +74,21 @@ protected:
 
 private:
     QString getLaunchAgentFilename() const;
+    static OSStatus hotkeyHandler(EventHandlerCallRef nextHandler, EventRef theEvent, void* userData);
 
     QScopedPointer<AppKit> m_appkit;
     static QPointer<MacUtils> m_instance;
+
+    struct globalShortcut
+    {
+        EventHotKeyRef hotkeyRef;
+        EventHotKeyID hotkeyId;
+        uint16 nativeKeyCode;
+        CGEventFlags nativeModifiers;
+    };
+
+    int m_nextShortcutId = 1;
+    QHash<QString, QSharedPointer<globalShortcut>> m_globalShortcuts;
 
     Q_DISABLE_COPY(MacUtils)
 };

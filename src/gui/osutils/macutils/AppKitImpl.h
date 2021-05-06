@@ -20,6 +20,7 @@
 
 #import <Foundation/Foundation.h>
 #import <AppKit/NSRunningApplication.h>
+#import <AppKit/NSWindow.h>
 
 @interface AppKitImpl : NSObject
 {
@@ -35,9 +36,11 @@
 - (bool) hideProcess:(pid_t) pid;
 - (bool) isHidden:(pid_t) pid;
 - (bool) isDarkMode;
+- (bool) isStatusBarDark;
 - (void) userSwitchHandler:(NSNotification*) notification;
 - (bool) enableAccessibility;
 - (bool) enableScreenRecording;
 - (void) toggleForegroundApp:(bool) foreground;
+- (void) setWindowSecurity:(NSWindow*) window state:(bool) state;
 
 @end

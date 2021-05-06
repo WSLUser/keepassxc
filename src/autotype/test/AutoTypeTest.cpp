@@ -42,35 +42,9 @@ QString AutoTypePlatformTest::activeWindowTitle()
     return m_activeWindowTitle;
 }
 
-bool AutoTypePlatformTest::registerGlobalShortcut(Qt::Key key, Qt::KeyboardModifiers modifiers)
-{
-    Q_UNUSED(key);
-    Q_UNUSED(modifiers);
-
-    return true;
-}
-
-void AutoTypePlatformTest::unregisterGlobalShortcut(Qt::Key key, Qt::KeyboardModifiers modifiers)
-{
-    Q_UNUSED(key);
-    Q_UNUSED(modifiers);
-}
-
-int AutoTypePlatformTest::platformEventFilter(void* event)
-{
-    Q_UNUSED(event);
-
-    return -1;
-}
-
 AutoTypeExecutor* AutoTypePlatformTest::createExecutor()
 {
     return new AutoTypeExecutorTest(this);
-}
-
-void AutoTypePlatformTest::triggerGlobalAutoType()
-{
-    emit globalShortcutTriggered();
 }
 
 void AutoTypePlatformTest::setActiveWindowTitle(const QString& title)
@@ -85,27 +59,23 @@ QString AutoTypePlatformTest::actionChars()
 
 int AutoTypePlatformTest::actionCount()
 {
-    return m_actionList.size();
+    return m_actionCount;
 }
 
 void AutoTypePlatformTest::clearActions()
 {
-    qDeleteAll(m_actionList);
-    m_actionList.clear();
-
     m_actionChars.clear();
+    m_actionCount = 0;
 }
 
-void AutoTypePlatformTest::addActionChar(AutoTypeChar* action)
+void AutoTypePlatformTest::addAction(const AutoTypeKey* action)
 {
-    m_actionList.append(action->clone());
-    m_actionChars += action->character;
-}
-
-void AutoTypePlatformTest::addActionKey(AutoTypeKey* action)
-{
-    m_actionList.append(action->clone());
-    m_actionChars.append(keyToString(action->key));
+    ++m_actionCount;
+    if (action->key != Qt::Key_unknown) {
+        m_actionChars += keyToString(action->key);
+    } else {
+        m_actionChars += action->character;
+    }
 }
 
 bool AutoTypePlatformTest::raiseWindow(WId window)
@@ -132,12 +102,20 @@ AutoTypeExecutorTest::AutoTypeExecutorTest(AutoTypePlatformTest* platform)
 {
 }
 
-void AutoTypeExecutorTest::execChar(AutoTypeChar* action)
+AutoTypeAction::Result AutoTypeExecutorTest::execBegin(const AutoTypeBegin* action)
 {
-    m_platform->addActionChar(action);
+    Q_UNUSED(action);
+    return AutoTypeAction::Result::Ok();
 }
 
-void AutoTypeExecutorTest::execKey(AutoTypeKey* action)
+AutoTypeAction::Result AutoTypeExecutorTest::execType(const AutoTypeKey* action)
 {
-    m_platform->addActionKey(action);
+    m_platform->addAction(action);
+    return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeExecutorTest::execClearField(const AutoTypeClearField* action)
+{
+    Q_UNUSED(action);
+    return AutoTypeAction::Result::Ok();
 }

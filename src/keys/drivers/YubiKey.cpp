@@ -188,11 +188,13 @@ void YubiKey::findValidKeys()
                                            .arg(vender, QString::number(serial), QString::number(slot));
                         ykSlots.append({slot, display});
                     } else if (performTestChallenge(yk_key, slot, &wouldBlock)) {
-                        auto display = tr("%1 [%2] Challenge Response - Slot %3 - %4")
-                                           .arg(vender,
-                                                QString::number(serial),
-                                                QString::number(slot),
-                                                wouldBlock ? tr("Press") : tr("Passive"));
+                        auto display =
+                            tr("%1 [%2] Challenge-Response - Slot %3 - %4")
+                                .arg(vender,
+                                     QString::number(serial),
+                                     QString::number(slot),
+                                     wouldBlock ? tr("Press", "Challenge-Response Key interaction request")
+                                                : tr("Passive", "Challenge-Response Key no interaction required"));
                         ykSlots.append({slot, display});
                     }
                 }
@@ -263,7 +265,7 @@ bool YubiKey::testChallenge(YubiKeySlot slot, bool* wouldBlock)
 bool YubiKey::performTestChallenge(void* key, int slot, bool* wouldBlock)
 {
     auto chall = randomGen()->randomArray(1);
-    QByteArray resp;
+    Botan::secure_vector<char> resp;
     auto ret = performChallenge(static_cast<YK_KEY*>(key), slot, false, chall, resp);
     if (ret == SUCCESS || ret == WOULDBLOCK) {
         if (wouldBlock) {
@@ -283,7 +285,8 @@ bool YubiKey::performTestChallenge(void* key, int slot, bool* wouldBlock)
  * @param response response output from YubiKey
  * @return challenge result
  */
-YubiKey::ChallengeResult YubiKey::challenge(YubiKeySlot slot, const QByteArray& challenge, QByteArray& response)
+YubiKey::ChallengeResult
+YubiKey::challenge(YubiKeySlot slot, const QByteArray& challenge, Botan::secure_vector<char>& response)
 {
     m_error.clear();
     if (!m_initialized) {
@@ -316,8 +319,11 @@ YubiKey::ChallengeResult YubiKey::challenge(YubiKeySlot slot, const QByteArray& 
     return ret;
 }
 
-YubiKey::ChallengeResult
-YubiKey::performChallenge(void* key, int slot, bool mayBlock, const QByteArray& challenge, QByteArray& response)
+YubiKey::ChallengeResult YubiKey::performChallenge(void* key,
+                                                   int slot,
+                                                   bool mayBlock,
+                                                   const QByteArray& challenge,
+                                                   Botan::secure_vector<char>& response)
 {
     m_error.clear();
     int yk_cmd = (slot == 1) ? SLOT_CHAL_HMAC1 : SLOT_CHAL_HMAC2;
@@ -356,7 +362,7 @@ YubiKey::performChallenge(void* key, int slot, bool mayBlock, const QByteArray& 
             if (yk_errno == YK_ETIMEOUT) {
                 m_error = tr("Hardware key timed out waiting for user interaction.");
             } else if (yk_errno == YK_EUSBERR) {
-                m_error = tr("A USB error ocurred when accessing the hardware key: %1").arg(yk_usb_strerror());
+                m_error = tr("A USB error occurred when accessing the hardware key: %1").arg(yk_usb_strerror());
             } else {
                 m_error = tr("Failed to complete a challenge-response, the specific error was: %1")
                               .arg(yk_strerror(yk_errno));

@@ -22,6 +22,7 @@
 #include <QDialog>
 #include <QMainWindow>
 #include <QMenuBar>
+#include <QStatusBar>
 #include <QToolBar>
 
 LightStyle::LightStyle()
@@ -111,13 +112,13 @@ QString LightStyle::getAppStyleSheet() const
 void LightStyle::polish(QWidget* widget)
 {
     if (qobject_cast<QMainWindow*>(widget) || qobject_cast<QDialog*>(widget) || qobject_cast<QMenuBar*>(widget)
-        || qobject_cast<QToolBar*>(widget)) {
+        || qobject_cast<QToolBar*>(widget) || qobject_cast<QStatusBar*>(widget)) {
         auto palette = widget->palette();
 #if defined(Q_OS_MACOS)
         if (osUtils->isDarkMode()) {
-            palette.setColor(QPalette::Active, QPalette::Window, QRgb(0xD1D1D1));
-            palette.setColor(QPalette::Inactive, QPalette::Window, QRgb(0xF4F4F4));
-            palette.setColor(QPalette::Disabled, QPalette::Window, QRgb(0xD1D1D1));
+            palette.setColor(QPalette::Active, QPalette::Window, QRgb(0xD4D4D4));
+            palette.setColor(QPalette::Inactive, QPalette::Window, QRgb(0xF5F5F5));
+            palette.setColor(QPalette::Disabled, QPalette::Window, QRgb(0xF5F5F5));
         }
 #elif defined(Q_OS_WIN)
         palette.setColor(QPalette::All, QPalette::Window, QRgb(0xFFFFFF));

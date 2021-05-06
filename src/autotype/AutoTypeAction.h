@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2021 Team KeePassXC <team@keepassxc.org>
  *  Copyright (C) 2012 Felix Geyer <debfx@fobos.de>
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -19,69 +20,116 @@
 #define KEEPASSX_AUTOTYPEACTION_H
 
 #include <QChar>
-#include <QObject>
-#include <Qt>
 
 #include "core/Global.h"
 
 class AutoTypeExecutor;
 
-class KEEPASSX_EXPORT AutoTypeAction
+class KEEPASSXC_EXPORT AutoTypeAction
 {
 public:
-    virtual AutoTypeAction* clone() = 0;
-    virtual void accept(AutoTypeExecutor* executor) = 0;
-    virtual ~AutoTypeAction();
+    class Result
+    {
+    public:
+        Result()
+            : m_isOk(false)
+            , m_canRetry(false)
+            , m_error(QString())
+        {
+        }
+
+        static Result Ok()
+        {
+            return Result(true, false, QString());
+        }
+
+        static Result Retry(const QString& error)
+        {
+            return Result(false, true, error);
+        }
+
+        static Result Failed(const QString& error)
+        {
+            return Result(false, false, error);
+        }
+
+        bool isOk() const
+        {
+            return m_isOk;
+        }
+
+        bool canRetry() const
+        {
+            return m_canRetry;
+        }
+
+        const QString& errorString() const
+        {
+            return m_error;
+        }
+
+    private:
+        bool m_isOk;
+        bool m_canRetry;
+        QString m_error;
+
+        Result(bool isOk, bool canRetry, const QString& error)
+            : m_isOk(isOk)
+            , m_canRetry(canRetry)
+            , m_error(error)
+        {
+        }
+    };
+
+    AutoTypeAction() = default;
+    virtual Result exec(AutoTypeExecutor* executor) const = 0;
+    virtual ~AutoTypeAction() = default;
 };
 
-class KEEPASSX_EXPORT AutoTypeChar : public AutoTypeAction
+class KEEPASSXC_EXPORT AutoTypeKey : public AutoTypeAction
 {
 public:
-    explicit AutoTypeChar(const QChar& character);
-    AutoTypeAction* clone() override;
-    void accept(AutoTypeExecutor* executor) override;
+    explicit AutoTypeKey(const QChar& character, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
+    explicit AutoTypeKey(Qt::Key key, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
+    Result exec(AutoTypeExecutor* executor) const override;
 
     const QChar character;
+    const Qt::Key key = Qt::Key_unknown;
+    const Qt::KeyboardModifiers modifiers;
 };
 
-class KEEPASSX_EXPORT AutoTypeKey : public AutoTypeAction
+class KEEPASSXC_EXPORT AutoTypeDelay : public AutoTypeAction
 {
 public:
-    explicit AutoTypeKey(Qt::Key key);
-    AutoTypeAction* clone() override;
-    void accept(AutoTypeExecutor* executor) override;
-
-    const Qt::Key key;
-};
-
-class KEEPASSX_EXPORT AutoTypeDelay : public AutoTypeAction
-{
-public:
-    explicit AutoTypeDelay(int delayMs);
-    AutoTypeAction* clone() override;
-    void accept(AutoTypeExecutor* executor) override;
+    explicit AutoTypeDelay(int delayMs, bool setExecDelay = false);
+    Result exec(AutoTypeExecutor* executor) const override;
 
     const int delayMs;
+    const bool setExecDelay;
 };
 
-class KEEPASSX_EXPORT AutoTypeClearField : public AutoTypeAction
+class KEEPASSXC_EXPORT AutoTypeClearField : public AutoTypeAction
 {
 public:
-    AutoTypeClearField();
-    AutoTypeAction* clone() override;
-    void accept(AutoTypeExecutor* executor) override;
+    Result exec(AutoTypeExecutor* executor) const override;
 };
 
-class KEEPASSX_EXPORT AutoTypeExecutor
+class KEEPASSXC_EXPORT AutoTypeBegin : public AutoTypeAction
 {
 public:
-    virtual ~AutoTypeExecutor()
-    {
-    }
-    virtual void execChar(AutoTypeChar* action) = 0;
-    virtual void execKey(AutoTypeKey* action) = 0;
-    virtual void execDelay(AutoTypeDelay* action);
-    virtual void execClearField(AutoTypeClearField* action);
+    Result exec(AutoTypeExecutor* executor) const override;
+};
+
+class KEEPASSXC_EXPORT AutoTypeExecutor
+{
+public:
+    virtual ~AutoTypeExecutor() = default;
+    virtual AutoTypeAction::Result execBegin(const AutoTypeBegin* action) = 0;
+    virtual AutoTypeAction::Result execType(const AutoTypeKey* action) = 0;
+    virtual AutoTypeAction::Result execClearField(const AutoTypeClearField* action) = 0;
+
+    int execDelayMs = 25;
+    QString error;
 };
 
 #endif // KEEPASSX_AUTOTYPEACTION_H

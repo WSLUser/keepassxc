@@ -23,6 +23,7 @@
 #include "core/Bootstrap.h"
 #include "core/Config.h"
 #include "core/Global.h"
+#include "gui/Icons.h"
 #include "gui/MainWindow.h"
 #include "gui/MessageBox.h"
 #include "gui/osutils/OSUtils.h"
@@ -35,10 +36,6 @@
 #include <QSocketNotifier>
 #include <QStandardPaths>
 #include <QtNetwork/QLocalSocket>
-
-#if defined(Q_OS_WIN) || (defined(Q_OS_UNIX) && !defined(Q_OS_MACOS))
-#include "gui/osutils/OSEventFilter.h"
-#endif
 
 #if defined(Q_OS_UNIX)
 #include <signal.h>
@@ -60,9 +57,7 @@ Application::Application(int& argc, char** argv)
     , m_alreadyRunning(false)
     , m_lockFile(nullptr)
 #if defined(Q_OS_WIN) || (defined(Q_OS_UNIX) && !defined(Q_OS_MACOS))
-    , m_osEventFilter(new OSEventFilter())
 {
-    installNativeEventFilter(m_osEventFilter.data());
 #else
 {
 #endif
@@ -133,6 +128,12 @@ Application::Application(int& argc, char** argv)
         qWarning()
             << QObject::tr("The lock file could not be created. Single-instance mode disabled.").toUtf8().constData();
     }
+
+    connect(osUtils, &OSUtilsBase::interfaceThemeChanged, this, [this]() {
+        if (config()->get(Config::GUI_ApplicationTheme).toString() != "classic") {
+            applyTheme();
+        }
+    });
 }
 
 Application::~Application()
@@ -160,6 +161,7 @@ void Application::bootstrap()
     QApplication::setFont(QApplication::font("QMessageBox"));
 #endif
 
+    osUtils->registerNativeEventFilter();
     MessageBox::initializeButtonDefs();
 
 #ifdef Q_OS_MACOS
@@ -179,15 +181,15 @@ void Application::applyTheme()
         }
 #endif
     }
-
+    QPixmapCache::clear();
     if (appTheme == "light") {
-        setStyle(new LightStyle);
-        // Workaround Qt 5.15+ bug
-        setPalette(style()->standardPalette());
+        auto* s = new LightStyle;
+        setPalette(s->standardPalette());
+        setStyle(s);
     } else if (appTheme == "dark") {
-        setStyle(new DarkStyle);
-        // Workaround Qt 5.15+ bug
-        setPalette(style()->standardPalette());
+        auto* s = new DarkStyle;
+        setPalette(s->standardPalette());
+        setStyle(s);
         m_darkTheme = true;
     } else {
         // Classic mode, don't check for dark theme on Windows

@@ -46,8 +46,8 @@
 #include "core/TimeDelta.h"
 #include "core/Tools.h"
 #ifdef WITH_XC_SSHAGENT
-#include "crypto/ssh/OpenSSHKey.h"
 #include "sshagent/KeeAgentSettings.h"
+#include "sshagent/OpenSSHKey.h"
 #include "sshagent/SSHAgent.h"
 #endif
 #ifdef WITH_XC_BROWSER
@@ -178,9 +178,6 @@ void EditEntryWidget::setupMain()
 
     m_mainUi->expirePresets->setMenu(createPresetsMenu());
     connect(m_mainUi->expirePresets->menu(), SIGNAL(triggered(QAction*)), this, SLOT(useExpiryPreset(QAction*)));
-
-    // HACK: Align username text with other line edits. Qt does not let you do this with an application stylesheet.
-    m_mainUi->usernameComboBox->lineEdit()->setStyleSheet("padding-left: 8px;");
 }
 
 void EditEntryWidget::setupAdvanced()
@@ -268,9 +265,8 @@ void EditEntryWidget::setupAutoType()
 #ifdef WITH_XC_BROWSER
 void EditEntryWidget::setupBrowser()
 {
-    m_browserUi->setupUi(m_browserWidget);
-
     if (config()->get(Config::Browser_Enabled).toBool()) {
+        m_browserUi->setupUi(m_browserWidget);
         addPage(tr("Browser Integration"), icons()->icon("internet-web-browser"), m_browserWidget);
         m_additionalURLsDataModel->setEntryAttributes(m_entryAttributes);
         m_browserUi->additionalURLsView->setModel(m_additionalURLsDataModel);
@@ -444,7 +440,7 @@ void EditEntryWidget::setupEntryUpdate()
     // Advanced tab
     connect(m_advancedUi->attributesEdit, SIGNAL(textChanged()), this, SLOT(setModified()));
     connect(m_advancedUi->protectAttributeButton, SIGNAL(stateChanged(int)), this, SLOT(setModified()));
-    connect(m_advancedUi->knownBadCheckBox, SIGNAL(stateChanged(int)), this, SLOT(setModified()));
+    connect(m_advancedUi->excludeReportsCheckBox, SIGNAL(stateChanged(int)), this, SLOT(setModified()));
     connect(m_advancedUi->fgColorCheckBox, SIGNAL(stateChanged(int)), this, SLOT(setModified()));
     connect(m_advancedUi->bgColorCheckBox, SIGNAL(stateChanged(int)), this, SLOT(setModified()));
     connect(m_advancedUi->attachmentsWidget, SIGNAL(widgetUpdated()), this, SLOT(setModified()));
@@ -705,6 +701,7 @@ bool EditEntryWidget::getOpenSSHKey(OpenSSHKey& key, bool decrypt)
 
     if (!settings.toOpenSSHKey(m_mainUi->usernameComboBox->lineEdit()->text(),
                                m_mainUi->passwordEdit->text(),
+                               m_db->filePath(),
                                m_advancedUi->attachmentsWidget->entryAttachments(),
                                key,
                                decrypt)) {
@@ -865,9 +862,7 @@ void EditEntryWidget::setForms(Entry* entry, bool restore)
         editTriggers = QAbstractItemView::DoubleClicked;
     }
     m_advancedUi->attributesView->setEditTriggers(editTriggers);
-    m_advancedUi->knownBadCheckBox->setChecked(entry->customData()->contains(PasswordHealth::OPTION_KNOWN_BAD)
-                                               && entry->customData()->value(PasswordHealth::OPTION_KNOWN_BAD)
-                                                      == TRUE_STR);
+    m_advancedUi->excludeReportsCheckBox->setChecked(entry->excludeFromReports());
     setupColorButton(true, entry->foregroundColor());
     setupColorButton(false, entry->backgroundColor());
     m_iconsWidget->setEnabled(!m_history);
@@ -944,42 +939,51 @@ void EditEntryWidget::setForms(Entry* entry, bool restore)
 #endif
 
 #ifdef WITH_XC_BROWSER
-    if (m_customData->contains(BrowserService::OPTION_SKIP_AUTO_SUBMIT)) {
-        // clang-format off
-        m_browserUi->skipAutoSubmitCheckbox->setChecked(m_customData->value(BrowserService::OPTION_SKIP_AUTO_SUBMIT) == TRUE_STR);
-        // clang-format on
-    } else {
-        m_browserUi->skipAutoSubmitCheckbox->setChecked(false);
+    if (config()->get(Config::Browser_Enabled).toBool()) {
+        if (!hasPage(m_browserWidget)) {
+            setupBrowser();
+        }
+
+        if (m_customData->contains(BrowserService::OPTION_SKIP_AUTO_SUBMIT)) {
+            // clang-format off
+            m_browserUi->skipAutoSubmitCheckbox->setChecked(m_customData->value(BrowserService::OPTION_SKIP_AUTO_SUBMIT) == TRUE_STR);
+            // clang-format on
+        } else {
+            m_browserUi->skipAutoSubmitCheckbox->setChecked(false);
+        }
+
+        if (m_customData->contains(BrowserService::OPTION_HIDE_ENTRY)) {
+            m_browserUi->hideEntryCheckbox->setChecked(m_customData->value(BrowserService::OPTION_HIDE_ENTRY)
+                                                       == TRUE_STR);
+        } else {
+            m_browserUi->hideEntryCheckbox->setChecked(false);
+        }
+
+        if (m_customData->contains(BrowserService::OPTION_ONLY_HTTP_AUTH)) {
+            m_browserUi->onlyHttpAuthCheckbox->setChecked(m_customData->value(BrowserService::OPTION_ONLY_HTTP_AUTH)
+                                                          == TRUE_STR);
+        } else {
+            m_browserUi->onlyHttpAuthCheckbox->setChecked(false);
+        }
+
+        if (m_customData->contains(BrowserService::OPTION_NOT_HTTP_AUTH)) {
+            m_browserUi->notHttpAuthCheckbox->setChecked(m_customData->value(BrowserService::OPTION_NOT_HTTP_AUTH)
+                                                         == TRUE_STR);
+        } else {
+            m_browserUi->notHttpAuthCheckbox->setChecked(false);
+        }
+
+        m_browserUi->addURLButton->setEnabled(!m_history);
+        m_browserUi->removeURLButton->setEnabled(false);
+        m_browserUi->editURLButton->setEnabled(false);
+        m_browserUi->additionalURLsView->setEditTriggers(editTriggers);
+
+        if (m_additionalURLsDataModel->rowCount() != 0) {
+            m_browserUi->additionalURLsView->setCurrentIndex(m_additionalURLsDataModel->index(0, 0));
+        }
     }
 
-    if (m_customData->contains(BrowserService::OPTION_HIDE_ENTRY)) {
-        m_browserUi->hideEntryCheckbox->setChecked(m_customData->value(BrowserService::OPTION_HIDE_ENTRY) == TRUE_STR);
-    } else {
-        m_browserUi->hideEntryCheckbox->setChecked(false);
-    }
-
-    if (m_customData->contains(BrowserService::OPTION_ONLY_HTTP_AUTH)) {
-        m_browserUi->onlyHttpAuthCheckbox->setChecked(m_customData->value(BrowserService::OPTION_ONLY_HTTP_AUTH)
-                                                      == TRUE_STR);
-    } else {
-        m_browserUi->onlyHttpAuthCheckbox->setChecked(false);
-    }
-
-    if (m_customData->contains(BrowserService::OPTION_NOT_HTTP_AUTH)) {
-        m_browserUi->notHttpAuthCheckbox->setChecked(m_customData->value(BrowserService::OPTION_NOT_HTTP_AUTH)
-                                                     == TRUE_STR);
-    } else {
-        m_browserUi->notHttpAuthCheckbox->setChecked(false);
-    }
-
-    m_browserUi->addURLButton->setEnabled(!m_history);
-    m_browserUi->removeURLButton->setEnabled(false);
-    m_browserUi->editURLButton->setEnabled(false);
-    m_browserUi->additionalURLsView->setEditTriggers(editTriggers);
-
-    if (m_additionalURLsDataModel->rowCount() != 0) {
-        m_browserUi->additionalURLsView->setCurrentIndex(m_additionalURLsDataModel->index(0, 0));
-    }
+    setPageHidden(m_browserWidget, !config()->get(Config::Browser_Enabled).toBool());
 #endif
 
     m_editWidgetProperties->setFields(entry->timeInfo(), entry->uuid());
@@ -1013,9 +1017,46 @@ bool EditEntryWidget::commitEntry()
         return true;
     }
 
+    // HACK: Check that entry pointer is still valid, see https://github.com/keepassxreboot/keepassxc/issues/5722
+    if (!m_entry) {
+        QMessageBox::information(this,
+                                 tr("Invalid Entry"),
+                                 tr("An external merge operation has invalidated this entry.\n"
+                                    "Unfortunately, any changes made have been lost."));
+        return true;
+    }
+
     // Check Auto-Type validity early
-    if (!AutoType::verifyAutoTypeSyntax(m_autoTypeUi->sequenceEdit->text())) {
-        return false;
+    QString error;
+    if (m_autoTypeUi->customSequenceButton->isChecked()
+        && !AutoType::verifyAutoTypeSyntax(m_autoTypeUi->sequenceEdit->text(), m_entry, error)) {
+        auto res = MessageBox::question(this,
+                                        tr("Auto-Type Validation Error"),
+                                        tr("An error occurred while validating the custom Auto-Type sequence:\n%1\n"
+                                           "Would you like to correct it?")
+                                            .arg(error),
+                                        MessageBox::Yes | MessageBox::No,
+                                        MessageBox::Yes);
+        if (res == MessageBox::Yes) {
+            setCurrentPage(3);
+            return false;
+        }
+    }
+    for (const auto& assoc : m_autoTypeAssoc->getAll()) {
+        if (!AutoType::verifyAutoTypeSyntax(assoc.sequence, m_entry, error)) {
+            auto res =
+                MessageBox::question(this,
+                                     tr("Auto-Type Validation Error"),
+                                     tr("An error occurred while validating the Auto-Type sequence for \"%1\":\n%2\n"
+                                        "Would you like to correct it?")
+                                         .arg(assoc.window.left(40), error),
+                                     MessageBox::Yes | MessageBox::No,
+                                     MessageBox::Yes);
+            if (res == MessageBox::Yes) {
+                setCurrentPage(3);
+                return false;
+            }
+        }
     }
 
     if (m_advancedUi->attributesView->currentIndex().isValid() && m_advancedUi->attributesEdit->isEnabled()) {
@@ -1084,11 +1125,8 @@ void EditEntryWidget::updateEntryData(Entry* entry) const
 
     entry->setNotes(m_mainUi->notesEdit->toPlainText());
 
-    const auto wasKnownBad = entry->customData()->contains(PasswordHealth::OPTION_KNOWN_BAD)
-                             && entry->customData()->value(PasswordHealth::OPTION_KNOWN_BAD) == TRUE_STR;
-    const auto isKnownBad = m_advancedUi->knownBadCheckBox->isChecked();
-    if (isKnownBad != wasKnownBad) {
-        entry->customData()->set(PasswordHealth::OPTION_KNOWN_BAD, isKnownBad ? TRUE_STR : FALSE_STR);
+    if (entry->excludeFromReports() != m_advancedUi->excludeReportsCheckBox->isChecked()) {
+        entry->setExcludeFromReports(m_advancedUi->excludeReportsCheckBox->isChecked());
     }
 
     if (m_advancedUi->fgColorCheckBox->isChecked() && m_advancedUi->fgColorButton->property("color").isValid()) {

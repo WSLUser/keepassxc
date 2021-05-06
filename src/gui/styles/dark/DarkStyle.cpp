@@ -21,6 +21,7 @@
 #include <QDialog>
 #include <QMainWindow>
 #include <QMenuBar>
+#include <QStatusBar>
 #include <QToolBar>
 
 DarkStyle::DarkStyle()
@@ -110,17 +111,15 @@ QString DarkStyle::getAppStyleSheet() const
 void DarkStyle::polish(QWidget* widget)
 {
     if (qobject_cast<QMainWindow*>(widget) || qobject_cast<QDialog*>(widget) || qobject_cast<QMenuBar*>(widget)
-        || qobject_cast<QToolBar*>(widget)) {
+        || qobject_cast<QToolBar*>(widget) || qobject_cast<QStatusBar*>(widget)) {
         auto palette = widget->palette();
 #if defined(Q_OS_MACOS)
         if (!osUtils->isDarkMode()) {
-            palette.setColor(QPalette::Active, QPalette::Window, QRgb(0x252525));
-            palette.setColor(QPalette::Inactive, QPalette::Window, QRgb(0x282828));
-            palette.setColor(QPalette::Disabled, QPalette::Window, QRgb(0x252525));
+            palette.setColor(QPalette::Active, QPalette::Window, QRgb(0x2A2A2A));
+            palette.setColor(QPalette::Inactive, QPalette::Window, QRgb(0x2D2D2D));
+            palette.setColor(QPalette::Disabled, QPalette::Window, QRgb(0x2D2D2D));
         }
 #elif defined(Q_OS_WIN)
-        // Register event filter for better dark mode support
-        WinUtils::registerEventFilters();
         palette.setColor(QPalette::All, QPalette::Window, QRgb(0x2F2F30));
 #else
         palette.setColor(QPalette::Active, QPalette::Window, QRgb(0x2F2F30));

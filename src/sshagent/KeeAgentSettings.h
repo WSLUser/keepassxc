@@ -19,9 +19,9 @@
 #ifndef KEEAGENTSETTINGS_H
 #define KEEAGENTSETTINGS_H
 
+#include "OpenSSHKey.h"
 #include "core/Entry.h"
 #include "core/EntryAttachments.h"
-#include "crypto/ssh/OpenSSHKey.h"
 #include <QXmlStreamReader>
 #include <QtCore>
 
@@ -44,6 +44,7 @@ public:
     bool toOpenSSHKey(const Entry* entry, OpenSSHKey& key, bool decrypt);
     bool toOpenSSHKey(const QString& username,
                       const QString& password,
+                      const QString& databasePath,
                       const EntryAttachments* attachments,
                       OpenSSHKey& key,
                       bool decrypt);

@@ -52,6 +52,10 @@
 #include <QtMath>
 #include <qdrawutil.h>
 
+#ifdef Q_OS_MACOS
+#include <QOperatingSystemVersion>
+#endif
+
 #include <cmath>
 
 #include "gui/Icons.h"
@@ -82,9 +86,10 @@ namespace Phantom
         // These two are currently not based on font, but could be
         constexpr qint16 LineEdit_ContentsHPad = 5;
         constexpr qint16 ComboBox_NonEditable_ContentsHPad = 7;
-        constexpr qint16 HeaderSortIndicator_HOffset = 1;
-        constexpr qint16 HeaderSortIndicator_VOffset = 2;
-        constexpr qint16 TabBar_InctiveVShift = 0;
+        constexpr qint16 HeaderSortIndicator_HOffset = 6;
+        constexpr qint16 HeaderSortIndicator_VOffset = 4;
+        constexpr qint16 HeaderSortIndicator_Width = 12;
+        constexpr qint16 TabBar_InactiveVShift = 0;
 
         constexpr qreal TabBarTab_Rounding = 1.0;
         constexpr qreal SpinBox_Rounding = 1.0;
@@ -288,10 +293,16 @@ namespace Phantom
 #ifdef Q_OS_MACOS
             QColor tabBarBase(const QPalette& pal)
             {
-                return hack_isLightPalette(pal) ? QRgb(0xD1D1D1) : QRgb(0x252525);
+                if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSBigSur) {
+                    return hack_isLightPalette(pal) ? QRgb(0xD4D4D4) : QRgb(0x2A2A2A);
+                }
+                return hack_isLightPalette(pal) ? QRgb(0xDD1D1D1) : QRgb(0x252525);
             }
             QColor tabBarBaseInactive(const QPalette& pal)
             {
+                if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSBigSur) {
+                    return hack_isLightPalette(pal) ? QRgb(0xF5F5F5) : QRgb(0x2D2D2D);
+                }
                 return hack_isLightPalette(pal) ? QRgb(0xF4F4F4) : QRgb(0x282828);
             }
 #endif
@@ -3918,7 +3929,7 @@ int BaseStyle::pixelMetric(PixelMetric metric, const QStyleOption* option, const
         return widget->fontMetrics().height();
     }
     case PM_TabBarTabShiftVertical: {
-        val = Phantom::TabBar_InctiveVShift;
+        val = Phantom::TabBar_InactiveVShift;
         break;
     }
     case PM_SubMenuOverlap:
@@ -4154,9 +4165,9 @@ QSize BaseStyle::sizeFromContents(ContentsType type,
         sz.setWidth((nullIcon ? 0 : margin) + iconSize + (hdr->text.isNull() ? 0 : margin) + txt.width() + margin);
         if (hdr->sortIndicator != QStyleOptionHeader::None) {
             if (hdr->orientation == Qt::Horizontal)
-                sz.rwidth() += sz.height() + margin;
+                sz.rwidth() += Phantom::dpiScaled(Phantom::HeaderSortIndicator_Width);
             else
-                sz.rheight() += sz.width() + margin;
+                sz.rheight() += Phantom::dpiScaled(Phantom::HeaderSortIndicator_Width);
         }
         return sz;
     }
@@ -4571,27 +4582,6 @@ QStyle::SubControl BaseStyle::hitTestComplexControl(ComplexControl cc,
     return QCommonStyle::hitTestComplexControl(cc, opt, pt, w);
 }
 
-QPixmap BaseStyle::generatedIconPixmap(QIcon::Mode iconMode, const QPixmap& pixmap, const QStyleOption* opt) const
-{
-    // Default icon highlight is way too subtle
-    if (iconMode == QIcon::Selected) {
-        QImage img = pixmap.toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied);
-        QPainter painter(&img);
-
-        painter.setCompositionMode(QPainter::CompositionMode_SourceAtop);
-
-        QColor color =
-            Phantom::DeriveColors::adjustLightness(opt->palette.color(QPalette::Normal, QPalette::Highlight), .25);
-        color.setAlphaF(0.25);
-        painter.fillRect(0, 0, img.width(), img.height(), color);
-
-        painter.end();
-
-        return QPixmap::fromImage(img);
-    }
-    return QCommonStyle::generatedIconPixmap(iconMode, pixmap, opt);
-}
-
 int BaseStyle::styleHint(StyleHint hint,
                          const QStyleOption* option,
                          const QWidget* widget,
@@ -4777,8 +4767,34 @@ QRect BaseStyle::subElementRect(SubElement sr, const QStyleOption* opt, const QW
     }
     case SE_LineEditContents: {
         QRect r = QCommonStyle::subElementRect(sr, opt, w);
-        int pad = Phantom::dpiScaled(Phantom::LineEdit_ContentsHPad);
+        int pad = Phantom::LineEdit_ContentsHPad;
+        if (w && qobject_cast<const QComboBox*>(w->parentWidget())) {
+            pad += 3;
+        }
+        pad = Phantom::dpiScaled(pad);
         return r.adjusted(pad, 0, -pad, 0);
+    }
+    case SE_HeaderLabel: {
+        int margin = proxy()->pixelMetric(QStyle::PM_HeaderMargin, opt, w);
+        QRect r(opt->rect.x() + margin,
+                opt->rect.y() + margin,
+                opt->rect.width() - margin * 2,
+                opt->rect.height() - margin * 2);
+        if (auto header = qstyleoption_cast<const QStyleOptionHeader*>(opt)) {
+            // Subtract width needed for arrow, if there is one
+            if (header->sortIndicator != QStyleOptionHeader::None) {
+                if (opt->state & State_Horizontal)
+                    r.setWidth(r.width() - Phantom::dpiScaled(Phantom::HeaderSortIndicator_Width));
+                else
+                    r.setHeight(r.height() - Phantom::dpiScaled(Phantom::HeaderSortIndicator_Width));
+            }
+        }
+        return visualRect(opt->direction, opt->rect, r);
+    }
+    case SE_HeaderArrow: {
+        QRect r = QCommonStyle::subElementRect(sr, opt, w);
+        r.setWidth(Phantom::dpiScaled(Phantom::HeaderSortIndicator_Width));
+        return r;
     }
     default:
         break;

@@ -16,16 +16,14 @@
  */
 
 #include "Analyze.h"
-#include "cli/Utils.h"
+
+#include "Utils.h"
+#include "core/Group.h"
 #include "core/HibpOffline.h"
+#include "core/Tools.h"
 
 #include <QCommandLineParser>
 #include <QFile>
-#include <QString>
-
-#include "cli/TextStream.h"
-#include "core/Group.h"
-#include "core/Tools.h"
 
 const QCommandLineOption Analyze::HIBPDatabaseOption = QCommandLineOption(
     {"H", "hibp"},
@@ -63,7 +61,7 @@ int Analyze::executeWithDatabase(QSharedPointer<Database> database, QSharedPoint
 
     auto okon = parser->value(Analyze::OkonOption);
     if (!okon.isEmpty()) {
-        out << QObject::tr("Evaluating database entries using okon...") << endl;
+        out << QObject::tr("Evaluating database entries using okon…") << endl;
 
         if (!HibpOffline::okonReport(database, okon, hibpDatabase, findings, &error)) {
             err << error << endl;
@@ -76,7 +74,7 @@ int Analyze::executeWithDatabase(QSharedPointer<Database> database, QSharedPoint
             return EXIT_FAILURE;
         }
 
-        out << QObject::tr("Evaluating database entries against HIBP file, this will take a while...") << endl;
+        out << QObject::tr("Evaluating database entries against HIBP file, this will take a while…") << endl;
 
         if (!HibpOffline::report(database, hibpFile, findings, &error)) {
             err << error << endl;
@@ -84,23 +82,21 @@ int Analyze::executeWithDatabase(QSharedPointer<Database> database, QSharedPoint
         }
     }
 
-    for (auto& finding : findings) {
-        printHibpFinding(finding.first, finding.second, out);
+    for (const auto& finding : findings) {
+        const auto entry = finding.first;
+        auto count = finding.second;
+
+        QString path = entry->title();
+        for (auto g = entry->group(); g && g != g->database()->rootGroup(); g = g->parentGroup()) {
+            path.prepend("/").prepend(g->name());
+        }
+
+        if (count > 0) {
+            out << QObject::tr("Password for '%1' has been leaked %2 time(s)!", "", count).arg(path).arg(count) << endl;
+        } else {
+            out << QObject::tr("Password for '%1' has been leaked!", "", count).arg(path) << endl;
+        }
     }
 
     return EXIT_SUCCESS;
-}
-
-void Analyze::printHibpFinding(const Entry* entry, int count, QTextStream& out)
-{
-    QString path = entry->title();
-    for (auto g = entry->group(); g && g != g->database()->rootGroup(); g = g->parentGroup()) {
-        path.prepend("/").prepend(g->name());
-    }
-
-    if (count > 0) {
-        out << QObject::tr("Password for '%1' has been leaked %2 time(s)!", "", count).arg(path).arg(count) << endl;
-    } else {
-        out << QObject::tr("Password for '%1' has been leaked!", "", count).arg(path) << endl;
-    }
 }

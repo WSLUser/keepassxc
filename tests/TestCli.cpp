@@ -21,18 +21,17 @@
 #include "core/Bootstrap.h"
 #include "core/Config.h"
 #include "core/Entry.h"
-#include "core/Global.h"
 #include "core/Group.h"
 #include "core/Metadata.h"
 #include "core/Tools.h"
 #include "crypto/Crypto.h"
+#include "keys/FileKey.h"
 #include "keys/drivers/YubiKey.h"
 
 #include "cli/Add.h"
 #include "cli/AddGroup.h"
 #include "cli/Analyze.h"
 #include "cli/Clip.h"
-#include "cli/Command.h"
 #include "cli/Create.h"
 #include "cli/Diceware.h"
 #include "cli/Edit.h"
@@ -53,15 +52,10 @@
 #include "cli/Utils.h"
 
 #include <QClipboard>
-#include <QFuture>
-#include <QSet>
 #include <QSignalSpy>
-#include <QTextStream>
 #include <QtConcurrent>
 
 QTEST_MAIN(TestCli)
-
-QSharedPointer<Database> globalCurrentDatabase;
 
 void TestCli::initTestCase()
 {
@@ -70,13 +64,13 @@ void TestCli::initTestCase()
     Config::createTempFileInstance();
     Bootstrap::bootstrap();
 
-    auto fd = new QFile();
+    m_devNull.reset(new QFile());
 #ifdef Q_OS_WIN
-    fd->open(fopen("nul", "w"), QIODevice::WriteOnly);
+    m_devNull->open(fopen("nul", "w"), QIODevice::WriteOnly);
 #else
-    fd->open(fopen("/dev/null", "w"), QIODevice::WriteOnly);
+    m_devNull->open(fopen("/dev/null", "w"), QIODevice::WriteOnly);
 #endif
-    Utils::DEVNULL.setDevice(fd);
+    Utils::DEVNULL.setDevice(m_devNull.data());
 }
 
 void TestCli::init()
@@ -129,6 +123,11 @@ void TestCli::cleanup()
     Utils::STDOUT.setDevice(nullptr);
     Utils::STDERR.setDevice(nullptr);
     Utils::STDIN.setDevice(nullptr);
+}
+
+void TestCli::cleanupTestCase()
+{
+    m_devNull.reset();
 }
 
 QSharedPointer<Database> TestCli::readDatabase(const QString& filename, const QString& pw, const QString& keyfile)
@@ -285,7 +284,7 @@ void TestCli::testAdd()
              "-g",
              "-L",
              "20",
-             "-n",
+             "--notes",
              "some notes",
              m_dbFile->fileName(),
              "/newuser-entry"});
@@ -361,7 +360,7 @@ void TestCli::testAdd()
     QVERIFY(!defaultPasswordClassesRegex.match(entry->password()).hasMatch());
 
     setInput("a");
-    execCmd(addCmd, {"add", "-u", "newuser5", "-n", "test\\nnew line", m_dbFile->fileName(), "/newuser-entry5"});
+    execCmd(addCmd, {"add", "-u", "newuser5", "--notes", "test\\nnew line", m_dbFile->fileName(), "/newuser-entry5"});
     m_stderr->readLine(); // skip password prompt
     QCOMPARE(m_stderr->readAll(), QByteArray(""));
     QCOMPARE(m_stdout->readAll(), QByteArray("Successfully added entry newuser-entry5.\n"));
@@ -447,7 +446,7 @@ void TestCli::testClip()
 
     // Password
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "/Sample Entry"});
+    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "/Sample Entry", "0"});
     QString errorOutput(m_stderr->readAll());
 
     if (QProcessEnvironment::systemEnvironment().contains("WAYLAND_DISPLAY")) {
@@ -466,21 +465,25 @@ void TestCli::testClip()
 
     // Quiet option
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "/Sample Entry", "-q"});
+    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "/Sample Entry", "0", "-q"});
     QCOMPARE(m_stderr->readAll(), QByteArray());
     QCOMPARE(m_stdout->readAll(), QByteArray());
     QTRY_COMPARE(clipboard->text(), QString("Password"));
 
     // Username
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "/Sample Entry", "-a", "username"});
+    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "/Sample Entry", "0", "-a", "username"});
     QTRY_COMPARE(clipboard->text(), QString("User Name"));
 
     // TOTP
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "/Sample Entry", "--totp"});
-
+    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "/Sample Entry", "0", "--totp"});
     QTRY_VERIFY(isTotp(clipboard->text()));
+
+    // Test Unicode
+    setInput("a");
+    execCmd(clipCmd, {"clip", m_dbFile2->fileName(), "/General/Unicode", "0", "-a", "username"});
+    QTRY_COMPARE(clipboard->text(), QString(R"(¯\_(ツ)_/¯)"));
 
     // Password with timeout
     setInput("a");
@@ -507,35 +510,30 @@ void TestCli::testClip()
     future.waitForFinished();
 
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "--totp", "/Sample Entry", "0"});
-    QVERIFY(m_stderr->readAll().contains("Invalid timeout value 0.\n"));
-
-    setInput("a");
     execCmd(clipCmd, {"clip", m_dbFile->fileName(), "--totp", "/Sample Entry", "bleuh"});
     QVERIFY(m_stderr->readAll().contains("Invalid timeout value bleuh.\n"));
 
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFile2->fileName(), "--totp", "/Sample Entry"});
+    execCmd(clipCmd, {"clip", m_dbFile2->fileName(), "--totp", "/Sample Entry", "0"});
     QVERIFY(m_stderr->readAll().contains("Entry with path /Sample Entry has no TOTP set up.\n"));
 
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "-a", "TESTAttribute1", "/Sample Entry"});
-    QVERIFY(m_stderr->readAll().contains(
-        "ERROR: attribute TESTAttribute1 is ambiguous, it matches TestAttribute1 and testattribute1.\n"));
+    execCmd(clipCmd, {"clip", m_dbFile->fileName(), "-a", "TESTAttribute1", "/Sample Entry", "0"});
+    QVERIFY(m_stderr->readAll().contains("ERROR: attribute TESTAttribute1 is ambiguous"));
 
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFile2->fileName(), "--attribute", "Username", "--totp", "/Sample Entry"});
+    execCmd(clipCmd, {"clip", m_dbFile2->fileName(), "--attribute", "Username", "--totp", "/Sample Entry", "0"});
     QVERIFY(m_stderr->readAll().contains("ERROR: Please specify one of --attribute or --totp, not both.\n"));
 
     // Best option
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFileMulti->fileName(), "Multi", "-b"});
+    execCmd(clipCmd, {"clip", m_dbFileMulti->fileName(), "Multi", "0", "-b"});
     QByteArray errorChoices = m_stderr->readAll();
     QVERIFY(errorChoices.contains("Multi Entry 1"));
     QVERIFY(errorChoices.contains("Multi Entry 2"));
 
     setInput("a");
-    execCmd(clipCmd, {"clip", m_dbFileMulti->fileName(), "Entry 2", "-b"});
+    execCmd(clipCmd, {"clip", m_dbFileMulti->fileName(), "Entry 2", "0", "-b"});
     QTRY_COMPARE(clipboard->text(), QString("Password2"));
 }
 
@@ -752,7 +750,7 @@ void TestCli::testEdit()
              "newuser",
              "--url",
              "https://otherurl.example.com/",
-             "-n",
+             "--notes",
              "newnotes",
              "-t",
              "newtitle",
@@ -827,7 +825,7 @@ void TestCli::testEdit()
 
     // with line break in notes
     setInput("a");
-    execCmd(editCmd, {"edit", m_dbFile->fileName(), "-n", "testing\\nline breaks", "/evennewertitle"});
+    execCmd(editCmd, {"edit", m_dbFile->fileName(), "--notes", "testing\\nline breaks", "/evennewertitle"});
     db = readDatabase();
     entry = db->rootGroup()->findEntryByPath("/evennewertitle");
     QVERIFY(entry);
@@ -1776,8 +1774,7 @@ void TestCli::testShow()
     setInput("a");
     execCmd(showCmd, {"show", m_dbFile->fileName(), "-a", "Testattribute1", "/Sample Entry"});
     QCOMPARE(m_stdout->readAll(), QByteArray());
-    QVERIFY(m_stderr->readAll().contains(
-        "ERROR: attribute Testattribute1 is ambiguous, it matches TestAttribute1 and testattribute1.\n"));
+    QVERIFY(m_stderr->readAll().contains("ERROR: attribute Testattribute1 is ambiguous"));
 }
 
 void TestCli::testInvalidDbFiles()
@@ -1834,7 +1831,7 @@ void TestCli::testYubiKeyOption()
 
     bool wouldBlock = false;
     QByteArray challenge("CLITest");
-    QByteArray response;
+    Botan::secure_vector<char> response;
     QByteArray expected("\xA2\x3B\x94\x00\xBE\x47\x9A\x30\xA9\xEB\x50\x9B\x85\x56\x5B\x6B\x30\x25\xB4\x8E", 20);
 
     // Find a key that as configured for this test
@@ -1842,7 +1839,7 @@ void TestCli::testYubiKeyOption()
     for (auto key : keys) {
         if (YubiKey::instance()->testChallenge(key, &wouldBlock) && !wouldBlock) {
             YubiKey::instance()->challenge(key, challenge, response);
-            if (response == expected) {
+            if (std::memcmp(response.data(), expected.data(), expected.size())) {
                 pKey = key;
                 break;
             }

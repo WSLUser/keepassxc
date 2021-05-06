@@ -58,9 +58,9 @@ PasswordEdit::PasswordEdit(QWidget* parent)
 #endif
 
     m_toggleVisibleAction = new QAction(
-        icons()->icon("password-show-off"),
+        icons()->onOffIcon("password-show", false),
         tr("Toggle Password (%1)").arg(QKeySequence(modifier + Qt::Key_H).toString(QKeySequence::NativeText)),
-        nullptr);
+        this);
     m_toggleVisibleAction->setCheckable(true);
     m_toggleVisibleAction->setShortcut(modifier + Qt::Key_H);
     m_toggleVisibleAction->setShortcutContext(Qt::WidgetShortcut);
@@ -70,7 +70,7 @@ PasswordEdit::PasswordEdit(QWidget* parent)
     m_passwordGeneratorAction = new QAction(
         icons()->icon("password-generator"),
         tr("Generate Password (%1)").arg(QKeySequence(modifier + Qt::Key_G).toString(QKeySequence::NativeText)),
-        nullptr);
+        this);
     m_passwordGeneratorAction->setShortcut(modifier + Qt::Key_G);
     m_passwordGeneratorAction->setShortcutContext(Qt::WidgetShortcut);
     addAction(m_passwordGeneratorAction, QLineEdit::TrailingPosition);
@@ -79,7 +79,7 @@ PasswordEdit::PasswordEdit(QWidget* parent)
     m_capslockAction =
         new QAction(icons()->icon("dialog-warning", true, StateColorPalette().color(StateColorPalette::Error)),
                     tr("Warning: Caps Lock enabled!"),
-                    nullptr);
+                    this);
     addAction(m_capslockAction, QLineEdit::LeadingPosition);
     m_capslockAction->setVisible(false);
 }
@@ -113,7 +113,7 @@ void PasswordEdit::enablePasswordGenerator()
 void PasswordEdit::setShowPassword(bool show)
 {
     setEchoMode(show ? QLineEdit::Normal : QLineEdit::Password);
-    m_toggleVisibleAction->setIcon(icons()->icon(show ? "password-show-on" : "password-show-off"));
+    m_toggleVisibleAction->setIcon(icons()->onOffIcon("password-show", show));
     m_toggleVisibleAction->setChecked(show);
 
     if (m_repeatPasswordEdit) {

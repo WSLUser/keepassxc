@@ -25,12 +25,12 @@
 
 #if defined(Q_OS_WIN)
 #if defined(KEEPASSX_BUILDING_CORE)
-#define KEEPASSX_EXPORT Q_DECL_IMPORT
+#define KEEPASSXC_EXPORT Q_DECL_IMPORT
 #else
-#define KEEPASSX_EXPORT Q_DECL_EXPORT
+#define KEEPASSXC_EXPORT Q_DECL_EXPORT
 #endif
 #else
-#define KEEPASSX_EXPORT Q_DECL_EXPORT
+#define KEEPASSXC_EXPORT Q_DECL_EXPORT
 #endif
 
 #ifndef QUINT32_MAX
@@ -51,6 +51,15 @@ enum IconSize
     Default,
     Medium,
     Large
+};
+
+enum class AuthDecision
+{
+    Undecided,
+    Allowed,
+    AllowedOnce,
+    Denied,
+    DeniedOnce,
 };
 
 template <typename T> struct AddConst
